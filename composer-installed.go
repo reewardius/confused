@@ -8,40 +8,76 @@ import (
 	"strings"
 )
 
-type ComposerJSON struct {
+type ComposerInstalledJSON []struct {
+	Name string `json:"name"`
 	Require map[string]string `json:"require"`
 	RequireDev map[string]string `json:"require-dev"`
 }
 
-type ComposerLookup struct {
+type ComposerInstalledJSONPkg struct {
+	Packages ComposerInstalledJSON `json:"packages"`
+	DevPackages []string `json:"dev-package-names"`
+}
+
+type ComposerInstalledLookup struct {
 	Packages []string
 	Verbose bool
 }
 
-func NewComposerLookup(verbose bool) PackageResolver {
-	return &ComposerLookup{Packages: []string{}, Verbose: verbose}
+func NewComposerInstalledLookup(verbose bool) PackageResolver {
+	return &ComposerInstalledLookup{Packages: []string{}, Verbose: verbose}
 }
 
-func (c *ComposerLookup) ReadPackagesFromFile(rawfile []byte) error {
+func (c *ComposerInstalledLookup) ReadPackagesFromFile(rawfile []byte) error {
 
-	data := ComposerJSON{}
+	var vendorflag bool = true
+	data := ComposerInstalledJSON{}
 	err := json.Unmarshal([]byte(rawfile), &data)
 	if err != nil {
-		return err
+		fmt.Printf("Error reading file as Vendor file\n")
+		vendorflag = false
+		// return err
 	}
 
-	for pkgname := range data.Require {
-		c.Packages = append(c.Packages, pkgname)
+	data2 := ComposerInstalledJSONPkg{}
+	if !(vendorflag) {
+		err2 := json.Unmarshal([]byte(rawfile), &data2)
+		if err2 != nil {
+			fmt.Printf("Error reading file as generic Composer file\n")
+			return err2
+		}
 	}
 
-	for pkgname := range data.RequireDev {
-		c.Packages = append(c.Packages, pkgname)
+	d := ComposerInstalledJSON{}
+
+	if vendorflag {
+		d = data
+	} else {
+		d = data2.Packages
+		for i := 0; i < len(data2.DevPackages); i++ {
+			c.Packages = append(c.Packages, data2.DevPackages[i])
+		}
+	}
+	fmt.Printf("Successfully read file as generic Composer file\n")
+
+	for i := 0; i < len(d); i++ {
+
+		c.Packages = append(c.Packages, d[i].Name)
+
+		for pkgname := range d[i].Require {
+			c.Packages = append(c.Packages, pkgname)
+		}
+
+		for pkgname := range d[i].RequireDev {
+			c.Packages = append(c.Packages, pkgname)
+		}
+
 	}
 
 	return nil
 }
 
-func (c *ComposerLookup) PackagesNotInPublic() []string {
+func (c *ComposerInstalledLookup) PackagesNotInPublic() []string {
 	notavail := []string{}
 	for _, pkg := range c.Packages {
 		if pkg == "php" {
@@ -56,7 +92,7 @@ func (c *ComposerLookup) PackagesNotInPublic() []string {
 	return notavail
 }
 
-func (c *ComposerLookup) isAvailableInPublic(pkgname string, retry int) bool {
+func (c *ComposerInstalledLookup) isAvailableInPublic(pkgname string, retry int) bool {
 	if retry > 3 {
 		fmt.Printf(" [W] Maximum number of retries exhausted for package %s\n", pkgname)
 
